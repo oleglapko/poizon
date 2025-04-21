@@ -6,4 +6,4 @@ services:
     startCommand: "python main.py"
     envVars:
       - key: TOKEN
-        value: 7655184269:AAFnOEwzH3NhGYvOOjgfJNMuvkjFyrpbmhU  # 🔁 Замени на новый токен от BotFather
+        value: ${TELEGRAM_TOKEN}
