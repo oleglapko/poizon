@@ -1,13 +1,30 @@
 from keep_alive import keep_alive
 keep_alive()
+
 import os
 import math
 import requests
+import asyncio
+from flask import Flask
+from threading import Thread
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils import executor
 from dotenv import load_dotenv
 
+# Flask-сервер для Render
+app = Flask(__name__)
+
+@app.route("/ping")
+def ping():
+    return "pong", 200
+
+def run_flask():
+    app.run(host="0.0.0.0", port=8080)
+
+Thread(target=run_flask).start()
+
+# Загрузка токена
 load_dotenv()
 bot = Bot(token=os.getenv("TOKEN"))
 dp = Dispatcher(bot)
