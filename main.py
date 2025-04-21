@@ -10,7 +10,7 @@ from aiogram.types import Message
 import aiohttp
 
 # Токен бота
-BOT_TOKEN = os.getenv("7655184269:AAFnOEwzH3NhGYvOOjgfJNMuvkjFyrpbmhU")
+BOT_TOKEN = "7655184269:AAFnOEwzH3NhGYvOOjgfJNMuvkjFyrpbmhU"
 
 # Настройки
 YUAN_CB_RATE_URL = "https://www.cbr-xml-daily.ru/daily_json.js"
