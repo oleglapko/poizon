@@ -1,9 +1,9 @@
-services: 
+services:
   - type: web
-    name: thepoizonbot
+    name: poizon-bot
     env: python
-    buildCommand: ""
-    startCommand: "python main.py"
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python3 main.py"
     envVars:
       - key: TOKEN
-        value: ${TELEGRAM_TOKEN}
+        sync: false
