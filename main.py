@@ -1,136 +1,107 @@
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
-import requests
-from config import TOKEN, MANAGER_USERNAME
+import asyncio
+import os
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import Message
+import aiohttp
+
+# Токен бота
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+# Настройки
+YUAN_CB_RATE_URL = "https://www.cbr-xml-daily.ru/daily_json.js"
+DELIVERY_RATE = 789  # руб/кг
+COMMISSION = 0.1
+YUAN_MARKUP = 1.11
 
 # Настройка логирования
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+logging.basicConfig(level=logging.INFO)
+
+# FSM состояния
+class Order(StatesGroup):
+    choosing_category = State()
+    entering_price = State()
+
+# FSM Хранилище
+storage = MemoryStorage()
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(storage=storage)
+
+# Кнопки
+category_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Обувь")],
+        [KeyboardButton(text="Футболка/Кофта/Штаны")],
+        [KeyboardButton(text="Другое")],
+    ],
+    resize_keyboard=True
 )
-logger = logging.getLogger(__name__)
 
-# Константы
-CB_RATE_MARKUP = 0.11  # Наценка 11% к курсу ЦБ
-COMMISSION = 0.10      # Комиссия 10%
-SHIPPING_RATE = 789    # Доставка из Китая (руб/кг)
-
-CATEGORIES = {
-    'shoes': {'name': 'Обувь', 'weight': 1.5},
-    'clothes': {'name': 'Футболка/Кофта/Штаны', 'weight': 0.6},
-    'other': {'name': 'Другое', 'weight': None}
-}
-
-def start(update: Update, context: CallbackContext) -> None:
-    """Приветствие и запрос категории товара."""
-    user = update.effective_user
-    update.message.reply_text(
-        f"Привет, {user.first_name}! Я помогу рассчитать стоимость товара с Poizon.\n"
+@dp.message(commands=["start"])
+async def start(message: Message, state: FSMContext):
+    await message.answer(
+        "Привет! Я бот для расчёта стоимости доставки товаров с Poizon.\n"
         "Выбери категорию товара:",
-        reply_markup=get_categories_keyboard()
+        reply_markup=category_keyboard
     )
+    await state.set_state(Order.choosing_category)
 
-def get_categories_keyboard():
-    """Создает клавиатуру с категориями товаров."""
-    keyboard = [
-        [InlineKeyboardButton(CATEGORIES['shoes']['name'], callback_data='shoes')],
-        [InlineKeyboardButton(CATEGORIES['clothes']['name'], callback_data='clothes')],
-        [InlineKeyboardButton(CATEGORIES['other']['name'], callback_data='other')]
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-def get_cny_rate():
-    """Получает курс юаня от ЦБ РФ и добавляет 11%."""
-    try:
-        response = requests.get('https://www.cbr-xml-daily.ru/daily_json.js', timeout=5)
-        response.raise_for_status()
-        rate = response.json()['Valute']['CNY']['Value']
-        return rate * (1 + CB_RATE_MARKUP)
-    except Exception as e:
-        logger.error(f"Ошибка при получении курса: {e}")
-        return None
-
-def calculate_cost(price_cny, weight_kg):
-    """Рассчитывает итоговую стоимость."""
-    cny_rate = get_cny_rate()
-    if cny_rate is None:
-        return None, "Не удалось получить курс юаня. Попробуйте позже."
-
-    product_cost_rub = price_cny * cny_rate
-    commission = product_cost_rub * COMMISSION
-    shipping_china = weight_kg * SHIPPING_RATE
-    total = product_cost_rub + commission + shipping_china
-
-    message = (
-        f"📊 Расчет стоимости:\n"
-        f"• Цена товара: {price_cny} ¥ ≈ {product_cost_rub:.2f} ₽ (курс: {cny_rate:.2f} ₽/¥)\n"
-        f"• Комиссия 10%: {commission:.2f} ₽\n"
-        f"• Доставка из Китая: {shipping_china:.2f} ₽\n"
-        f"➖➖➖➖➖➖➖➖➖\n"
-        f"💰 Итого: {total:.2f} ₽\n\n"
-        f"ℹ️ К этой сумме добавится стоимость доставки СДЭК, которая будет известна после оформления заказа."
-    )
-    return total, message
-
-def handle_category(update: Update, context: CallbackContext) -> None:
-    """Обрабатывает выбор категории."""
-    query = update.callback_query
-    query.answer()  # Важно для работы кнопок!
-    
-    category = query.data
-    context.user_data['category'] = category
-
-    if category == 'other':
-        query.edit_message_text(f"Для категории '{CATEGORIES[category]['name']}' свяжитесь с менеджером @{MANAGER_USERNAME}.")
+@dp.message(lambda msg: msg.text in ["Обувь", "Футболка/Кофта/Штаны", "Другое"])
+async def choose_category(message: Message, state: FSMContext):
+    category = message.text
+    if category == "Другое":
+        await message.answer("По товарам другой категории напиши менеджеру: @oleglobok")
+        await state.clear()
         return
 
-    query.edit_message_text(f"Выбрана категория: {CATEGORIES[category]['name']}\nВведите цену товара в юанях:")
+    await state.update_data(category=category)
+    await message.answer("Введи стоимость товара в юанях (без доставки)")
+    await state.set_state(Order.entering_price)
 
-def handle_price(update: Update, context: CallbackContext) -> None:
-    """Обрабатывает ввод цены и выводит расчет."""
-    try:
-        price_cny = float(update.message.text.replace(',', '.'))
-        category = context.user_data.get('category')
+@dp.message(lambda msg: msg.text.replace('.', '', 1).isdigit(), state=Order.entering_price)
+async def calculate_total(message: Message, state: FSMContext):
+    data = await state.get_data()
+    price_yuan = float(message.text)
 
-        if category not in ['shoes', 'clothes']:
-            update.message.reply_text("Пожалуйста, выберите категорию через /start")
-            return
+    # Получение курса юаня ЦБ
+    async with aiohttp.ClientSession() as session:
+        async with session.get(YUAN_CB_RATE_URL) as resp:
+            cb_data = await resp.json()
+            cb_yuan = cb_data['Valute']['CNY']['Value']
+            rate = cb_yuan * YUAN_MARKUP
 
-        weight_kg = CATEGORIES[category]['weight']
-        total, message = calculate_cost(price_cny, weight_kg)
+    # Вес по категории
+    category = data['category']
+    if category == "Обувь":
+        weight = 1.5
+    else:
+        weight = 0.6
 
-        if total is not None:
-            update.message.reply_text(message)
-        else:
-            update.message.reply_text(message)
-    except ValueError:
-        update.message.reply_text("Пожалуйста, введите корректную цену (например, 299.99)")
+    # Расчёты
+    rub_price = price_yuan * rate
+    commission = rub_price * COMMISSION
+    delivery = weight * DELIVERY_RATE
+    total = rub_price + commission + delivery
 
-def error_handler(update: Update, context: CallbackContext) -> None:
-    """Логирует ошибки."""
-    logger.error(f"Ошибка при обработке сообщения: {context.error}")
+    await message.answer(
+        f"Стоимость товара: {rub_price:.0f} ₽\n"
+        f"Комиссия (10%): {commission:.0f} ₽\n"
+        f"Доставка из Китая в Москву: {delivery:.0f} ₽\n"
+        f"\nПримерная стоимость: {total:.0f} ₽\n"
+        f"\n⚠️ К этой сумме будет добавлена доставка СДЭК по России. Точная сумма будет известна после оформления заказа."
+    )
+    await state.clear()
 
-def main() -> None:
-    """Запуск бота."""
-    updater = Updater(TOKEN, use_context=True)
-    dispatcher = updater.dispatcher
+@dp.message()
+async def fallback(message: Message):
+    await message.answer("Пожалуйста, выбери категорию с кнопок или введи корректное число.")
 
-    # Обработчики команд
-    dispatcher.add_handler(CommandHandler('start', start))
-    
-    # Обработчики кнопок
-    dispatcher.add_handler(CallbackQueryHandler(handle_category))
-    
-    # Обработчик текстовых сообщений
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_price))
-    
-    # Обработчик ошибок
-    dispatcher.add_error_handler(error_handler)
+async def main():
+    await dp.start_polling(bot)
 
-    updater.start_polling()
-    logger.info("Бот запущен и работает...")
-    updater.idle()
-
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    asyncio.run(main())
