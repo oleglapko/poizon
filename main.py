@@ -8,7 +8,7 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.enums import ParseMode
 import asyncio
 
-TOKEN = '7655184269:AAG__JJ6raD0fC-YTVO9S0zbusXMO3itnro'
+TOKEN = '7655184269:AAFnOEwzH3NhGYvOOjgfJNMuvkjFyrpbmhU'
 
 bot = Bot(token=TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher(storage=MemoryStorage())
