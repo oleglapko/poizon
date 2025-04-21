@@ -116,8 +116,7 @@ async def enter_city(message: types.Message, state: FSMContext):
     else:
         cdek_str = f"Доставка по России СДЭК: {cdek_price} ₽"
     await message.answer(
-        f"<b>Итоговая стоимость:</b> {total} ₽
-{cdek_str}"
+    f"<b>Итоговая стоимость:</b> {total} ₽\n{cdek_str}"
     )
     await state.clear()
 
