@@ -1,135 +1,136 @@
-from keep_alive import keep_alive
-keep_alive()
-
 import os
 import math
+import aiohttp
+import asyncio
 import requests
-from flask import Flask
-from threading import Thread
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.utils import executor
+from aiogram.dispatcher.webhook import get_new_configured_app
+from aiogram.contrib.middlewares.logging import LoggingMiddleware
+from aiogram.utils.executor import set_webhook
 from dotenv import load_dotenv
+from aiohttp import web
 
-# Flask-сервер для Render
-app = Flask(__name__)
-
-@app.route("/ping")
-def ping():
-    return "pong", 200
-
-def run_flask():
-    app.run(host="0.0.0.0", port=8080)
-
-Thread(target=run_flask).start()
-
-# Загрузка токена
 load_dotenv()
-bot = Bot(token=os.getenv("TOKEN"))
+
+API_TOKEN = os.getenv("TOKEN")
+WEBHOOK_HOST = os.getenv("WEBHOOK_URL")  # например, https://your-app.onrender.com
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+
+bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
+dp.middleware.setup(LoggingMiddleware())
 
 # Константы
-DP_EXPRESS_RATE = 789  # ₽/кг
+DP_EXPRESS_RATE = 789
 COMMISSION = 0.10
 YUAN_MARKUP_PERCENT = 0.11
-SENDER_CITY = "Москва"
 
-# Клавиатура
 keyboard = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton("\U0001F45F Обувь"), KeyboardButton("\U0001F455 Футболка / Худи / Штаны")],
-        [KeyboardButton("\u2753 Другое")],
-        [KeyboardButton("\U0001F501 Новый расчёт")]
+        [KeyboardButton("👟 Обувь"), KeyboardButton("👕 Футболка / Худи / Штаны")],
+        [KeyboardButton("❓ Другое")],
+        [KeyboardButton("🔁 Новый расчёт")]
     ],
     resize_keyboard=True
 )
 
-# Временное хранилище веса и цены
-user_data = {}
+user_weights = {}
+user_cities = {}
 
-# Получение курса ЦБ РФ
 def get_cb_yuan_rate():
     try:
         response = requests.get("https://www.cbr-xml-daily.ru/daily_json.js")
         data = response.json()
         return data["Valute"]["CNY"]["Value"]
     except:
-        return 12.0  # запасной курс
+        return 12.0
 
-# Расчёт доставки СДЭК через API
-def get_sdek_price(receiver_city):
+async def get_cdek_delivery_price(city_to: str, weight: float) -> float:
     try:
-        response = requests.get(
-            "https://api.cdek.dev/getTariff",
-            params={
-                "from": SENDER_CITY,
-                "to": receiver_city,
-                "weight": 1
-            },
-            timeout=5
-        )
-        data = response.json()
-        return data.get("price", 0)
+        async with aiohttp.ClientSession() as session:
+            url = f"https://api.cdek.dev/v1/public/tariff"
+            params = {
+                "type": 1,
+                "from_location": "Москва",
+                "to_location": city_to,
+                "weight": weight,
+            }
+            async with session.get(url, params=params) as resp:
+                data = await resp.json()
+                return float(data.get("price", 600))
     except:
-        return 0
+        return 600
 
 @dp.message_handler(commands=["start"])
-@dp.message_handler(lambda message: message.text == "\U0001F501 Новый расчёт")
+@dp.message_handler(lambda message: message.text == "🔁 Новый расчёт")
 async def cmd_start(message: types.Message):
-    user_data.pop(message.chat.id, None)
+    user_weights.pop(message.chat.id, None)
+    user_cities.pop(message.chat.id, None)
     await message.answer("Выберите тип товара:", reply_markup=keyboard)
 
-@dp.message_handler(lambda message: message.text.startswith("\U0001F45F"))
+@dp.message_handler(lambda message: message.text.startswith("👟"))
 async def handle_shoes(message: types.Message):
-    user_data[message.chat.id] = {"weight": 1.5}
+    user_weights[message.chat.id] = 1.5
     await message.answer("Введите цену товара в юанях:")
 
 @dp.message_handler(lambda message: "футболка" in message.text.lower() or "худи" in message.text.lower() or "штаны" in message.text.lower())
 async def handle_clothes(message: types.Message):
-    user_data[message.chat.id] = {"weight": 0.7}
+    user_weights[message.chat.id] = 0.7
     await message.answer("Введите цену товара в юанях:")
 
 @dp.message_handler(lambda message: "другое" in message.text.lower())
 async def handle_other(message: types.Message):
-    await message.answer("\U0001F4E9 По доставке других товаров свяжитесь с менеджером: @oleglobok")
+    await message.answer("📩 По доставке других товаров свяжитесь с менеджером: @oleglobok")
 
-@dp.message_handler()
-async def handle_input(message: types.Message):
-    user_id = message.chat.id
+@dp.message_handler(lambda message: message.chat.id in user_weights and message.chat.id not in user_cities)
+async def ask_city(message: types.Message):
+    try:
+        float(message.text.replace(",", "."))
+        user_weights[message.chat.id] = user_weights[message.chat.id]
+        user_cities[message.chat.id] = {"yuan_price": float(message.text.replace(",", "."))}
+        await message.answer("Введите ваш город для расчета доставки СДЭК:")
+    except ValueError:
+        await message.answer("Введите корректную цену в юанях (например, 199.9).")
 
-    if user_id not in user_data:
-        await message.answer("Сначала выберите тип товара. Нажмите /start")
-        return
+@dp.message_handler(lambda message: message.chat.id in user_cities and "city_to" not in user_cities[message.chat.id])
+async def handle_city(message: types.Message):
+    user_cities[message.chat.id]["city_to"] = message.text
 
-    user_entry = user_data[user_id]
+    yuan_price = user_cities[message.chat.id]["yuan_price"]
+    city_to = user_cities[message.chat.id]["city_to"]
+    weight = user_weights[message.chat.id]
 
-    if "price" not in user_entry:
-        try:
-            yuan_price = float(message.text.replace(",", "."))
-            user_entry["price"] = yuan_price
-            await message.answer("Введите город, куда будет отправлен товар:")
-        except ValueError:
-            await message.answer("Введите корректную цену в юанях (например, 199.9).")
-    else:
-        # Финальный расчёт
-        receiver_city = message.text
-        rub_yuan_rate = get_cb_yuan_rate() * (1 + YUAN_MARKUP_PERCENT)
-        price_rub = user_entry["price"] * rub_yuan_rate
-        price_with_commission = price_rub * (1 + COMMISSION)
-        delivery_china = user_entry["weight"] * DP_EXPRESS_RATE
-        sdek_delivery = get_sdek_price(receiver_city)
-        total = price_with_commission + delivery_china + sdek_delivery
+    rub_yuan_rate = get_cb_yuan_rate() * (1 + YUAN_MARKUP_PERCENT)
+    price_rub = yuan_price * rub_yuan_rate
+    price_with_commission = price_rub * (1 + COMMISSION)
+    dp_delivery = weight * DP_EXPRESS_RATE
+    sdek_delivery = await get_cdek_delivery_price(city_to, weight)
 
-        await message.answer(
-            f"\U0001F4B8 Курс юаня: {rub_yuan_rate:.2f}₽\n"
-            f"\U0001F6CD️ Цена с комиссией (10%): {math.ceil(price_with_commission)}₽\n"
-            f"\U0001F4E6 Доставка из Китая: {math.ceil(delivery_china)}₽\n"
-            f"\U0001F69A Доставка СДЭК до {receiver_city}: {math.ceil(sdek_delivery)}₽\n"
-            f"\n\U0001F4B0 Итог: {math.ceil(total)}₽\n\n"
-            f"\U0001F501 Хочешь сделать новый расчёт? Нажми /start или кнопку ниже \U0001F447",
-            reply_markup=keyboard
-        )
-        user_data.pop(user_id, None)
+    total = price_with_commission + dp_delivery + sdek_delivery
+
+    await message.answer(
+        f"💸 Курс юаня: {rub_yuan_rate:.2f}₽\n"
+        f"🛍️ Цена с комиссией: {math.ceil(price_with_commission)}₽\n"
+        f"📦 Доставка из Китая: {math.ceil(dp_delivery)}₽\n"
+        f"📦 Доставка СДЭК: {math.ceil(sdek_delivery)}₽\n"
+        f"💰 Итог: {math.ceil(total)}₽"
+    )
+
+    await message.answer("🔁 Нажми /start для нового расчета", reply_markup=keyboard)
+
+# ——— Веб-сервер ———
+async def on_startup(app):
+    await bot.set_webhook(WEBHOOK_URL)
+
+async def on_shutdown(app):
+    await bot.delete_webhook()
+
+app = web.Application()
+app.on_startup.append(on_startup)
+app.on_shutdown.append(on_shutdown)
+app.router.add_post(WEBHOOK_PATH, get_new_configured_app(dispatcher=dp, path=WEBHOOK_PATH))
 
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
+    web.run_app(app, host="0.0.0.0", port=8080)
