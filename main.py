@@ -6,7 +6,7 @@ from utils import calculate_yuan_rate
 from keyboards import category_keyboard
 
 # Замени 'YOUR_BOT_TOKEN' на токен своего бота
-BOT_TOKEN = 'YOUR_BOT_TOKEN'
+BOT_TOKEN = '7655184269:AAFnOEwzH3NhGYvOOjgfJNMuvkjFyrpbmhU'
 bot = telebot.TeleBot(BOT_TOKEN)
 
 CHINA_TO_MOSCOW_DELIVERY_RATE = 789  # руб/кг
