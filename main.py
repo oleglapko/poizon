@@ -1,81 +1,93 @@
-import logging
-from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.enums import ParseMode
-import asyncio
+import telebot
+import requests
+import json
+from datetime import datetime
+from utils import calculate_yuan_rate, calculate_delivery_sdek  # Предполагаем, что эти функции будут в utils.py
 
-TOKEN = '7655184269:AAFnOEwzH3NhGYvOOjgfJNMuvkjFyrpbmhU'
+# Замени 'YOUR_BOT_TOKEN' на токен своего бота
+BOT_TOKEN = '7655184269:AAFnOEwzH3NhGYvOOjgfJNMuvkjFyrpbmhU'
+bot = telebot.TeleBot(BOT_TOKEN)
 
-bot = Bot(token=TOKEN, parse_mode=ParseMode.HTML)
-dp = Dispatcher(storage=MemoryStorage())
+YUAN_TO_RUB_CB_URL = "https://www.cbr.ru/currency_base/daily/?UniDbQuery.Posted=True&UniDbQuery.To=2024-04-22" # Замени на актуальную дату или сделай динамическим
+CHINA_TO_MOSCOW_DELIVERY_RATE = 789  # руб/кг
+COMMISSION_RATE = 0.10  # 10%
 
-# Кнопки
-keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="Рассчитать доставку")]
-    ],
-    resize_keyboard=True
-)
+item_data = {
+    "обувь": {"dimensions": [36, 26, 15], "weight": 1.5},
+    "футболка\\кофта\\штаны": {"dimensions": [23, 17, 13], "weight": 0.6},
+}
 
-# Машина состояний
-class DeliveryState(StatesGroup):
-    choosing_category = State()
-    entering_city = State()
+@bot.message_handler(commands=['start'])
+def greet(message):
+    bot.reply_to(message, "Привет! Я бот для расчета стоимости товаров с Poizon. Какой товар вы планируете заказать?")
+    bot.send_message(message.chat.id, "Выберите категорию: обувь, футболка\\кофта\\штаны или другое.")
+    bot.register_next_step_handler(message, ask_category)
 
-# Обработчики
-@dp.message(F.text == "/start")
-async def cmd_start(message: Message, state: FSMContext):
-    await message.answer("Привет! Я бот для расчёта доставки с Poizon. Нажми кнопку ниже👇", reply_markup=keyboard)
-    await state.clear()
-
-@dp.message(F.text == "Рассчитать доставку")
-async def choose_category(message: Message, state: FSMContext):
-    await message.answer("Выбери категорию:\n👟 Обувь\n👕 Одежда\n📦 Другое")
-    await state.set_state(DeliveryState.choosing_category)
-
-@dp.message(DeliveryState.choosing_category)
-async def handle_category(message: Message, state: FSMContext):
-    category = message.text.lower()
-
-    if "обувь" in category:
-        weight = 1.5
-    elif "одежда" in category:
-        weight = 0.7
-    elif "другое" in category:
-        await message.answer("Напиши менеджеру @oleglobok для уточнения доставки.")
-        await state.clear()
-        return
+def ask_category(message):
+    if message.text.lower() in item_data:
+        category = message.text.lower()
+        bot.send_message(message.chat.id, f"Вы выбрали категорию '{category}'. Пожалуйста, укажите стоимость товара в юанях.")
+        bot.register_next_step_handler(message, calculate_cost, category)
+    elif message.text.lower() == "другое":
+        bot.send_message(message.chat.id, "Пожалуйста, свяжитесь с менеджером @oleglobok для расчета стоимости нестандартных товаров.")
     else:
-        await message.answer("Пожалуйста, выбери одну из категорий: 👟 Обувь, 👕 Одежда, 📦 Другое")
-        return
+        bot.reply_to(message, "Некорректная категория. Пожалуйста, выберите из предложенных вариантов.")
+        bot.register_next_step_handler(message, ask_category)
 
-    await state.update_data(weight=weight)
-    await message.answer("Введи город получения (для расчета СДЭК):")
-    await state.set_state(DeliveryState.entering_city)
+def calculate_cost(message, category):
+    try:
+        yuan_price = float(message.text)
+        if yuan_price <= 0:
+            bot.reply_to(message, "Стоимость товара должна быть положительным числом. Пожалуйста, введите корректную стоимость.")
+            bot.register_next_step_handler(message, calculate_cost, category)
+            return
 
-@dp.message(DeliveryState.entering_city)
-async def handle_city(message: Message, state: FSMContext):
+        yuan_rate = calculate_yuan_rate()
+        rub_price_without_commission = yuan_price * yuan_rate
+        commission = rub_price_without_commission * COMMISSION_RATE
+        rub_price_with_commission = rub_price_without_commission + commission
+
+        weight = item_data[category]["weight"]
+        delivery_china_to_moscow = weight * CHINA_TO_MOSCOW_DELIVERY_RATE
+
+        total_without_sdek = rub_price_with_commission + delivery_china_to_moscow
+
+        bot.send_message(
+            message.chat.id,
+            f"Предварительный расчет:\n"
+            f"Курс юаня (ЦБ + 11%): {yuan_rate:.2f} ₽\n"
+            f"Стоимость товара без комиссии: {rub_price_without_commission:.2f} ₽\n"
+            f"Комиссия 10%: {commission:.2f} ₽\n"
+            f"Стоимость товара с комиссией: {rub_price_with_commission:.2f} ₽\n"
+            f"Доставка из Китая до Москвы ({weight} кг): {delivery_china_to_moscow:.2f} ₽\n"
+            f"Итого без учета доставки по РФ: {total_without_sdek:.2f} ₽\n\n"
+            f"Теперь укажите город доставки по России для расчета стоимости СДЭК."
+        )
+        bot.register_next_step_handler(message, get_sdek_delivery_cost, total_without_sdek)
+
+    except ValueError:
+        bot.reply_to(message, "Некорректный формат стоимости. Пожалуйста, введите число.")
+        bot.register_next_step_handler(message, calculate_cost, category)
+
+def get_sdek_delivery_cost(message, total_without_sdek):
     city = message.text
-    data = await state.get_data()
-    weight = data.get("weight", 1.0)
+    sdek_delivery_cost = calculate_delivery_sdek(city, item_data.get("обувь", {"dimensions": [1, 1, 1], "weight": 1})) # Примерные габариты и вес, функцию нужно реализовать
 
-    # Пример расчета стоимости
-    delivery_price = weight * 789
-    yuan_rate = 13.5 * 1.11
-    commission = 0.1
-    total_price = int((delivery_price * yuan_rate) * (1 + commission)) + 1
+    if sdek_delivery_cost is not None:
+        total_cost = total_without_sdek + sdek_delivery_cost
+        bot.send_message(
+            message.chat.id,
+            f"Стоимость доставки СДЭК в город {city}: {sdek_delivery_cost:.2f} ₽\n"
+            f"Итоговая стоимость заказа: {total_cost:.2f} ₽"
+        )
+    else:
+        bot.send_message(
+            message.chat.id,
+            f"Не удалось определить стоимость доставки СДЭК в город {city}. Пожалуйста, свяжитесь с менеджером @oleglobok для уточнения."
+        )
 
-    await message.answer(f"📦 Примерная стоимость доставки: <b>{total_price} ₽</b>")
-    await state.clear()
+    bot.send_message(message.chat.id, "Для нового расчета введите /start.")
 
-async def main():
-    logging.basicConfig(level=logging.INFO)
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
-
+if __name__ == '__main__':
+    print("Бот запущен!")
+    bot.polling(none_stop=True)
