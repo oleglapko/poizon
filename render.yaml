@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: poizon-bot
+    env: python
+    plan: free
+    buildCommand: ""
+    startCommand: python main.py
+    envVars:
+      - key: BOT_TOKEN
+        value: 7655184269:AAFnOEwzH3NhGYvOOjgfJNMuvkjFyrpbmhU
