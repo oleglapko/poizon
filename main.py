@@ -1,156 +1,137 @@
-import os
+import logging
 import math
 import aiohttp
 import asyncio
-import requests
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.contrib.middlewares.logging import LoggingMiddleware
-from aiogram.dispatcher.webhook import get_new_configured_app
+from aiogram.enums import ParseMode
+from aiogram.types import Message, CallbackQuery
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram import F
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
-from dotenv import load_dotenv
 
-load_dotenv()
-
-API_TOKEN = os.getenv("TOKEN")
-WEBHOOK_HOST = os.getenv("WEBHOOK_URL")
+TOKEN = "7655184269:AAG__JJ6raD0fC-YTVO9S0zbusXMO3itnro"
 WEBHOOK_PATH = "/webhook"
-WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+WEBHOOK_URL = "https://poizon-5ih7.onrender.com/webhook"
 
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
-dp.middleware.setup(LoggingMiddleware())
+bot = Bot(token=TOKEN, parse_mode=ParseMode.HTML)
+dp = Dispatcher(storage=MemoryStorage())
 
-# Константы
-DP_EXPRESS_RATE = 789
-COMMISSION = 0.10
-YUAN_MARKUP_PERCENT = 0.11
+logging.basicConfig(level=logging.INFO)
 
-# Клавиатура
-keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton("👟 Обувь"), KeyboardButton("👕 Футболка / Худи / Штаны")],
-        [KeyboardButton("❓ Другое")],
-        [KeyboardButton("🔁 Новый расчёт")]
-    ],
-    resize_keyboard=True
-)
+CATEGORY_WEIGHTS = {
+    "Обувь": 1.5,
+    "Футболка / Худи / Штаны": 0.7,
+}
 
-# Хранилища данных
-user_data = {}
+class OrderStates(StatesGroup):
+    waiting_for_price = State()
+    waiting_for_city = State()
 
-# Получение курса юаня с сайта ЦБ
-def get_cb_yuan_rate():
+@dp.message(F.text == "/start")
+async def start(message: Message, state: FSMContext):
+    await state.clear()
+    builder = InlineKeyboardBuilder()
+    builder.button(text="👟 Обувь", callback_data="Обувь")
+    builder.button(text="👕 Футболка / Худи / Штаны", callback_data="Футболка / Худи / Штаны")
+    builder.button(text="❓ Другое", callback_data="Другое")
+    builder.button(text="🆕 Новый расчёт", callback_data="new")
+    builder.adjust(2, 1, 1)
+    await message.answer("Выбери категорию товара:", reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data == "new")
+async def new_calc(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await start(callback.message, state)
+
+@dp.callback_query(F.data.in_(CATEGORY_WEIGHTS.keys()))
+async def category_chosen(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(category=callback.data)
+    await callback.message.answer("Введи цену товара в юанях:")
+    await state.set_state(OrderStates.waiting_for_price)
+
+@dp.callback_query(F.data == "Другое")
+async def other_category(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("Для расчёта другой категории напиши @oleglobok 👤")
+
+@dp.message(OrderStates.waiting_for_price)
+async def price_entered(message: Message, state: FSMContext):
     try:
-        response = requests.get("https://www.cbr-xml-daily.ru/daily_json.js")
-        data = response.json()
-        return data["Valute"]["CNY"]["Value"]
-    except:
-        return 12.0
-
-# Получение цены доставки СДЭК через API
-async def get_cdek_delivery_price(city_to: str, weight: float) -> float:
-    try:
-        async with aiohttp.ClientSession() as session:
-            url = f"https://api.cdek.dev/v1/public/tariff"
-            params = {
-                "type": 1,
-                "from_location": "Москва",
-                "to_location": city_to,
-                "weight": weight,
-            }
-            async with session.get(url, params=params) as resp:
-                data = await resp.json()
-                return float(data.get("price", 600))
-    except:
-        return 600
-
-# Сброс данных пользователя
-def reset_user(chat_id):
-    if chat_id in user_data:
-        del user_data[chat_id]
-
-# Хендлер /start и "Новый расчёт"
-@dp.message_handler(commands=["start"])
-@dp.message_handler(lambda message: message.text == "🔁 Новый расчёт")
-async def start_handler(message: types.Message):
-    reset_user(message.chat.id)
-    await message.answer("Выберите тип товара:", reply_markup=keyboard)
-
-# Обувь
-@dp.message_handler(lambda message: "обувь" in message.text.lower())
-async def handle_shoes(message: types.Message):
-    user_data[message.chat.id] = {"weight": 1.5}
-    await message.answer("Введите цену товара в юанях:")
-
-# Одежда
-@dp.message_handler(lambda message: "футболка" in message.text.lower() or "худи" in message.text.lower() or "штаны" in message.text.lower())
-async def handle_clothes(message: types.Message):
-    user_data[message.chat.id] = {"weight": 0.7}
-    await message.answer("Введите цену товара в юанях:")
-
-# Другое
-@dp.message_handler(lambda message: "другое" in message.text.lower())
-async def handle_other(message: types.Message):
-    await message.answer("📩 По доставке других товаров свяжитесь с менеджером: @oleglobok")
-
-# Получение цены
-@dp.message_handler(lambda message: message.chat.id in user_data and "yuan_price" not in user_data[message.chat.id])
-async def handle_price(message: types.Message):
-    try:
-        price = float(message.text.replace(",", "."))
-        user_data[message.chat.id]["yuan_price"] = price
-        await message.answer("Введите ваш город для расчета доставки СДЭК:")
+        price_yuan = float(message.text.replace(",", "."))
+        await state.update_data(price_yuan=price_yuan)
+        await message.answer("Введи город доставки (получатель, СДЭК):")
+        await state.set_state(OrderStates.waiting_for_city)
     except ValueError:
-        await message.answer("Введите корректную цену в юанях (например, 199.9).")
+        await message.answer("Пожалуйста, введи корректное число.")
 
-# Получение города и финальный расчет
-@dp.message_handler(lambda message: message.chat.id in user_data and "city_to" not in user_data[message.chat.id])
-async def handle_city(message: types.Message):
-    user_data[message.chat.id]["city_to"] = message.text
+@dp.message(OrderStates.waiting_for_city)
+async def city_entered(message: Message, state: FSMContext):
+    user_data = await state.get_data()
+    category = user_data["category"]
+    weight = CATEGORY_WEIGHTS[category]
+    price_yuan = user_data["price_yuan"]
+    city_to = message.text
 
-    weight = user_data[message.chat.id]["weight"]
-    yuan_price = user_data[message.chat.id]["yuan_price"]
-    city_to = user_data[message.chat.id]["city_to"]
+    # 1. Курс
+    cbr_url = "https://www.cbr-xml-daily.ru/daily_json.js"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(cbr_url) as resp:
+            data = await resp.json()
+            yuan_rate = data["Valute"]["CNY"]["Value"]
+            final_rate = yuan_rate * 1.11
 
-    rub_yuan_rate = get_cb_yuan_rate() * (1 + YUAN_MARKUP_PERCENT)
-    price_rub = yuan_price * rub_yuan_rate
-    price_with_commission = price_rub * (1 + COMMISSION)
-    dp_delivery = weight * DP_EXPRESS_RATE
-    sdek_delivery = await get_cdek_delivery_price(city_to, weight)
+    # 2. Цена с комиссией
+    price_rub = math.ceil(price_yuan * final_rate)
+    delivery_from_china = math.ceil(weight * 789)
+    total_before_sdek = price_rub + delivery_from_china
 
-    total = price_with_commission + dp_delivery + sdek_delivery
+    # 3. СДЭК
+    sdek_payload = {
+        "version": "1.0",
+        "senderCityId": 44,  # Москва
+        "receiverCityName": city_to,
+        "tariffId": 137,
+        "goods": [{"weight": weight}]
+    }
 
-    await message.answer(
-        f"📉 Курс юаня: {rub_yuan_rate:.2f}₽\n"
-        f"🎁 Цена с комиссией: {math.ceil(price_with_commission)}₽\n"
-        f"📦 Доставка из Китая: {math.ceil(dp_delivery)}₽\n"
-        f"📦 Доставка СДЭК: {math.ceil(sdek_delivery)}₽\n"
-        f"💰 Итог: {math.ceil(total)}₽"
+    sdek_url = "https://api.cdek.ru/calculator/tariff"
+    async with aiohttp.ClientSession() as session:
+        async with session.post(sdek_url, json=sdek_payload) as resp:
+            sdek_result = await resp.json()
+            sdek_price = sdek_result.get("result", {}).get("price", 0)
+
+    total_price = total_before_sdek + sdek_price
+
+    # Ответ
+    text = (
+        f"💴 Курс юаня: {final_rate:.2f}₽\n"
+        f"🎁 Цена с комиссией: {price_rub}₽\n"
+        f"📦 Доставка из Китая: {delivery_from_china}₽\n"
+        f"📦 Доставка СДЭК: {sdek_price}₽\n"
+        f"💰 Итого: {total_price}₽"
     )
 
-    await message.answer("🔁 Нажми /start для нового расчета", reply_markup=keyboard)
+    await message.answer(text)
+    await message.answer("🔁 Нажми /start для нового расчета")
+    await state.clear()
 
-# Веб-сервер для вебхука
-async def on_startup(app):
+# Webhook setup
+async def on_startup(dispatcher: Dispatcher):
     await bot.set_webhook(WEBHOOK_URL)
 
-async def on_shutdown(app):
+async def on_shutdown(dispatcher: Dispatcher):
     await bot.delete_webhook()
 
 app = web.Application()
-app.on_startup.append(on_startup)
-app.on_shutdown.append(on_shutdown)
-app.router.add_post(WEBHOOK_PATH, get_new_configured_app(dispatcher=dp, path=WEBHOOK_PATH))
-
-# Установка webhook вручную
-async def manual_webhook(request):
-    await bot.set_webhook(WEBHOOK_URL)
-    return web.Response(text="Webhook установлен!")
-
-app.router.add_get("/set_webhook", manual_webhook)
+dp.startup.register(on_startup)
+dp.shutdown.register(on_shutdown)
+SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
+setup_application(app, dp, bot=bot)
 
 if __name__ == "__main__":
-    web.run_app(app, host="0.0.0.0", port=8080)
+    web.run_app(app, host="0.0.0.0", port=8000)
 
 
