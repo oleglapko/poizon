@@ -3,12 +3,15 @@ import requests
 import json
 from datetime import datetime
 from utils import calculate_yuan_rate, calculate_delivery_sdek  # Предполагаем, что эти функции будут в utils.py
+import logging
+
+# Настройка базового логирования для main.py
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Замени 'YOUR_BOT_TOKEN' на токен своего бота
-BOT_TOKEN = '7655184269:AAFnOEwzH3NhGYvOOjgfJNMuvkjFyrpbmhU'
+BOT_TOKEN = 'YOUR_BOT_TOKEN'
 bot = telebot.TeleBot(BOT_TOKEN)
 
-YUAN_TO_RUB_CB_URL = "https://www.cbr.ru/currency_base/daily/?UniDbQuery.Posted=True&UniDbQuery.To=2024-04-22" # Замени на актуальную дату или сделай динамическим
 CHINA_TO_MOSCOW_DELIVERY_RATE = 789  # руб/кг
 COMMISSION_RATE = 0.10  # 10%
 
@@ -43,6 +46,10 @@ def calculate_cost(message, category):
             return
 
         yuan_rate = calculate_yuan_rate()
+        if yuan_rate is None:
+            bot.send_message(message.chat.id, "Произошла ошибка при получении курса валют. Пожалуйста, попробуйте позже.")
+            return
+
         rub_price_without_commission = yuan_price * yuan_rate
         commission = rub_price_without_commission * COMMISSION_RATE
         rub_price_with_commission = rub_price_without_commission + commission
