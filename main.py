@@ -133,4 +133,10 @@ app.on_shutdown.append(on_shutdown)
 app.router.add_post(WEBHOOK_PATH, get_new_configured_app(dispatcher=dp, path=WEBHOOK_PATH))
 
 if __name__ == "__main__":
+# Ручка для установки webhook вручную
+async def manual_set_webhook(request):
+    await bot.set_webhook(WEBHOOK_URL)
+    return web.Response(text="Webhook установлен!")
+    
+app.router.add_get("/set_webhook", manual_set_webhook)
     web.run_app(app, host="0.0.0.0", port=8080)
