@@ -7,4 +7,4 @@ services:
     startCommand: "python main.py"
     envVars:
       - key: TOKEN
-        value: 7655184269:AAG__JJ6raD0fC-YTVO9S0zbusXMO3itnro
+       
