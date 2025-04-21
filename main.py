@@ -1,137 +1,114 @@
 import logging
 import math
-import aiohttp
-import asyncio
-from aiogram import Bot, Dispatcher, types
+import os
+from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
-from aiogram.types import Message, CallbackQuery
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram import F
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiogram.types import Message
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.utils.webhook import WebhookRunner, WebhookRequestHandler
 from aiohttp import web
+import aiohttp
+from dotenv import load_dotenv
 
-TOKEN = "7655184269:AAG__JJ6raD0fC-YTVO9S0zbusXMO3itnro"
-WEBHOOK_PATH = "/webhook"
-WEBHOOK_URL = "https://poizon-5ih7.onrender.com/webhook"
+# Загрузка .env (если используешь)
+load_dotenv()
+
+TOKEN = os.getenv("BOT_TOKEN", "7655184269:AAG__JJ6raD0fC-YTVO9S0zbusXMO3itnro")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://poizon-5ih7.onrender.com/webhook")
 
 bot = Bot(token=TOKEN, parse_mode=ParseMode.HTML)
-dp = Dispatcher(storage=MemoryStorage())
+dp = Dispatcher()
 
-logging.basicConfig(level=logging.INFO)
+# Курс и параметры
+YUAN_BASE = 11  # Наценка к курсу ЦБ в %
+DELIVERY_RATE = 789  # руб/кг
+COMMISSION = 0.1
 
-CATEGORY_WEIGHTS = {
-    "Обувь": 1.5,
-    "Футболка / Худи / Штаны": 0.7,
-}
-
-class OrderStates(StatesGroup):
-    waiting_for_price = State()
-    waiting_for_city = State()
+# Клавиатура
+keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="👟 Обувь"), KeyboardButton(text="👕 Футболка / Худи / Штаны")],
+        [KeyboardButton(text="❓ Другое")],
+        [KeyboardButton(text="🔁 Новый расчёт")]
+    ],
+    resize_keyboard=True,
+)
 
 @dp.message(F.text == "/start")
-async def start(message: Message, state: FSMContext):
-    await state.clear()
-    builder = InlineKeyboardBuilder()
-    builder.button(text="👟 Обувь", callback_data="Обувь")
-    builder.button(text="👕 Футболка / Худи / Штаны", callback_data="Футболка / Худи / Штаны")
-    builder.button(text="❓ Другое", callback_data="Другое")
-    builder.button(text="🆕 Новый расчёт", callback_data="new")
-    builder.adjust(2, 1, 1)
-    await message.answer("Выбери категорию товара:", reply_markup=builder.as_markup())
+async def start(message: Message):
+    await message.answer("Выбери категорию товара:", reply_markup=keyboard)
 
-@dp.callback_query(F.data == "new")
-async def new_calc(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await start(callback.message, state)
+@dp.message(F.text.in_({"👟 Обувь", "👕 Футболка / Худи / Штаны"}))
+async def handle_category(message: Message):
+    category = message.text
+    weight = 1.5 if "Обувь" in category else 0.7
+    await message.answer("Укажи цену в юанях:")
 
-@dp.callback_query(F.data.in_(CATEGORY_WEIGHTS.keys()))
-async def category_chosen(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(category=callback.data)
-    await callback.message.answer("Введи цену товара в юанях:")
-    await state.set_state(OrderStates.waiting_for_price)
+    @dp.message()
+    async def get_price(message: Message):
+        try:
+            price_yuan = float(message.text)
+            rate = round(12.31, 2)
+            rate_with_fee = round(rate * (1 + YUAN_BASE / 100), 2)
+            price_rub = math.ceil(price_yuan * rate_with_fee * (1 + COMMISSION))
+            delivery_china = math.ceil(weight * DELIVERY_RATE)
 
-@dp.callback_query(F.data == "Другое")
-async def other_category(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer("Для расчёта другой категории напиши @oleglobok 👤")
+            await message.answer("Введи город получателя для расчёта СДЭК:")
 
-@dp.message(OrderStates.waiting_for_price)
-async def price_entered(message: Message, state: FSMContext):
-    try:
-        price_yuan = float(message.text.replace(",", "."))
-        await state.update_data(price_yuan=price_yuan)
-        await message.answer("Введи город доставки (получатель, СДЭК):")
-        await state.set_state(OrderStates.waiting_for_city)
-    except ValueError:
-        await message.answer("Пожалуйста, введи корректное число.")
+            @dp.message()
+            async def get_city(message: Message):
+                city = message.text
+                try:
+                    # Расчёт СДЭК
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            "https://api.cdek.dev/v1/calculate",
+                            json={
+                                "from_location": {"city": "Москва"},
+                                "to_location": {"city": city},
+                                "packages": [{"weight": weight * 1000, "length": 30, "width": 20, "height": 10}],
+                            },
+                        ) as response:
+                            cdek_data = await response.json()
+                            cdek_price = int(cdek_data["total_price"])
+                except Exception as e:
+                    cdek_price = 600  # fallback
 
-@dp.message(OrderStates.waiting_for_city)
-async def city_entered(message: Message, state: FSMContext):
-    user_data = await state.get_data()
-    category = user_data["category"]
-    weight = CATEGORY_WEIGHTS[category]
-    price_yuan = user_data["price_yuan"]
-    city_to = message.text
+                total = price_rub + delivery_china + cdek_price
 
-    # 1. Курс
-    cbr_url = "https://www.cbr-xml-daily.ru/daily_json.js"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(cbr_url) as resp:
-            data = await resp.json()
-            yuan_rate = data["Valute"]["CNY"]["Value"]
-            final_rate = yuan_rate * 1.11
+                await message.answer(
+                    f"💱 Курс юаня: {rate_with_fee}₽\n"
+                    f"🎁 Цена с комиссией: {price_rub}₽\n"
+                    f"📦 Доставка из Китая: {delivery_china}₽\n"
+                    f"📮 Доставка СДЭК: {cdek_price}₽\n"
+                    f"💰 Итого: {total}₽\n\n"
+                    "🔁 Нажми /start для нового расчёта"
+                )
+        except ValueError:
+            await message.answer("Введи число (цену в юанях).")
 
-    # 2. Цена с комиссией
-    price_rub = math.ceil(price_yuan * final_rate)
-    delivery_from_china = math.ceil(weight * 789)
-    total_before_sdek = price_rub + delivery_from_china
+@dp.message(F.text == "❓ Другое")
+async def handle_other(message: Message):
+    await message.answer("Напиши @oleglobok — он поможет рассчитать доставку под конкретный товар.")
 
-    # 3. СДЭК
-    sdek_payload = {
-        "version": "1.0",
-        "senderCityId": 44,  # Москва
-        "receiverCityName": city_to,
-        "tariffId": 137,
-        "goods": [{"weight": weight}]
-    }
+@dp.message(F.text == "🔁 Новый расчёт")
+async def handle_reset(message: Message):
+    await start(message)
 
-    sdek_url = "https://api.cdek.ru/calculator/tariff"
-    async with aiohttp.ClientSession() as session:
-        async with session.post(sdek_url, json=sdek_payload) as resp:
-            sdek_result = await resp.json()
-            sdek_price = sdek_result.get("result", {}).get("price", 0)
-
-    total_price = total_before_sdek + sdek_price
-
-    # Ответ
-    text = (
-        f"💴 Курс юаня: {final_rate:.2f}₽\n"
-        f"🎁 Цена с комиссией: {price_rub}₽\n"
-        f"📦 Доставка из Китая: {delivery_from_china}₽\n"
-        f"📦 Доставка СДЭК: {sdek_price}₽\n"
-        f"💰 Итого: {total_price}₽"
-    )
-
-    await message.answer(text)
-    await message.answer("🔁 Нажми /start для нового расчета")
-    await state.clear()
-
-# Webhook setup
-async def on_startup(dispatcher: Dispatcher):
+# === Webhook ===
+async def on_startup(app):
     await bot.set_webhook(WEBHOOK_URL)
 
-async def on_shutdown(dispatcher: Dispatcher):
+async def on_shutdown(app):
     await bot.delete_webhook()
 
 app = web.Application()
-dp.startup.register(on_startup)
-dp.shutdown.register(on_shutdown)
-SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
-setup_application(app, dp, bot=bot)
+app.router.add_post("/webhook", WebhookRequestHandler(dp))
+app.on_startup.append(on_startup)
+app.on_shutdown.append(on_shutdown)
 
 if __name__ == "__main__":
-    web.run_app(app, host="0.0.0.0", port=8000)
+    logging.basicConfig(level=logging.INFO)
+    web.run_app(app, port=10000)
 
 
