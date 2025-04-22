@@ -55,9 +55,9 @@ async def start_handler(message: Message, state: FSMContext):
         "Выберите номер категории (1, 2 или 3):",
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[
-                [KeyboardButton(text="1. Обувь 👟")],
-                [KeyboardButton(text="2. Футболка/штаны/худи 👕")],
-                [KeyboardButton(text="3. Другое ❓")],
+                [KeyboardButton(text="1")],
+                [KeyboardButton(text="2")],
+                [KeyboardButton(text="3")],
             ],
             resize_keyboard=True,
             one_time_keyboard=True
@@ -108,7 +108,6 @@ async def price_handler(message: Message, state: FSMContext):
         f"Курс юаня: {rate:.2f} ₽\n"
         f"Стоимость товара (с учётом комиссии 10%): {math.ceil(item_price_rub)} ₽\n"
         f"Стоимость доставки из Китая ({weight} кг): {math.ceil(delivery_cost)} ₽\n"
-        f"Комиссия (10%): {math.ceil(commission)} ₽\n\n"
         f"<b>Итого:</b> {total_cost} ₽\n\n"
         "Стоимость доставки по РФ (СДЭК, Почта, Boxberry) будет рассчитана нашим менеджером при заказе.\n"
         "Для оформления заказа напишите @oleglobok."
