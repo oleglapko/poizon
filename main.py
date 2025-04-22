@@ -83,7 +83,7 @@ def get_cbr_exchange_rate():
     return 11.5
 
 async def on_startup(app):
-    await bot.set_webhook(WEBHOOK_URL)
+    await bot.set_webhook(https://poizon-1.onrender.com/webhook)
 
 app = web.Application()
 app.on_startup.append(on_startup)
