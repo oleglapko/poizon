@@ -7,6 +7,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from aiogram.client import DefaultBotProperties
 from aiogram.utils.markdown import hbold
 from dotenv import load_dotenv
 
@@ -17,7 +18,7 @@ DOMAIN = os.getenv("DOMAIN")  # Например: https://poizon-5ih7.onrender.c
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_URL = f"{DOMAIN}{WEBHOOK_PATH}"
 
-bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 
 # Получение курса юаня
