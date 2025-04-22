@@ -95,26 +95,25 @@ async def price_handler(message: Message, state: FSMContext):
     category = data["category"]
     weight = 1.5 if category == "1" else 0.6
 
-    cbr_rate = get_cbr_exchange_rate()
-    rate = cbr_rate * 1.11
-    item_price_rub = price_yuan * rate
-    delivery_cost = weight * 789
-    subtotal = item_price_rub + delivery_cost
-    commission = subtotal * 0.10
-    total_cost = math.ceil(subtotal + commission)
-
-    total_item_price = math.ceil(item_price_rub + commission)
+  cbr_rate = get_cbr_exchange_rate()
+rate = cbr_rate * 1.11
+item_price_rub = price_yuan * rate
+delivery_cost = weight * 789
+commission = item_price_rub * 0.10
+total_item_price = math.ceil(item_price_rub + commission)
+total_cost = math.ceil(item_price_rub + delivery_cost + commission)
 
 await message.answer(
     f"<b>Расчёт стоимости:</b>\n"
     f"Курс юаня: {rate:.2f} ₽\n"
-    f"Стоимость товара с комиссией(10%): {total_item_price} ₽\n"
-    f"Стоимость доставки из Китая ({weight} кг): {math.ceil(delivery_cost)} ₽\n\n"
+    f"Стоимость товара с учетом комиссии (10%): {total_item_price} ₽\n"
+    f"Стоимость доставки из Китая: {math.ceil(delivery_cost)} ₽\n\n"
     f"<b>Итого:</b> {total_cost} ₽\n\n"
     "Стоимость доставки по РФ (СДЭК, Почта, Boxberry) будет рассчитана нашим менеджером при заказе.\n"
     "Для оформления заказа напишите @oleglobok."
 )
 await state.clear()
+
 
 
 # Удаляем вебхук и запускаем long polling
