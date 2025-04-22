@@ -1,6 +1,6 @@
-import os
 import math
 import asyncio
+import os
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
@@ -9,6 +9,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
+from flask import Flask
+from threading import Thread
 
 # Загрузка .env
 load_dotenv()
@@ -86,11 +88,28 @@ async def price_handler(message: Message, state: FSMContext):
 def get_cbr_exchange_rate():
     return 11.5  # Фиксированный курс ЦБ РФ, можно подключить API
 
-# Основная функция запуска
-async def main():
+# Функция для запуска бота
+def start_bot():
     print("Бот запущен на long polling!")
-    await dp.start_polling(bot)
+    asyncio.run(dp.start_polling(bot, skip_updates=True))
+
+# Создание Flask-приложения
+app = Flask(__name__)
+
+# Фейковый маршрут для того, чтобы Flask не завершал выполнение
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+# Функция для запуска Flask в отдельном потоке
+def run_flask():
+    app.run(host="0.0.0.0", port=5000)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Запускаем Flask в отдельном потоке
+    thread = Thread(target=run_flask)
+    thread.start()
+
+    # Запускаем бота в основном потоке
+    start_bot()
 
