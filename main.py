@@ -91,17 +91,17 @@ async def price_handler(message: Message, state: FSMContext):
         await message.answer("Введите число, например: 289")
         return
 
-    data = await state.get_data()
+       data = await state.get_data()
     category = data["category"]
     weight = 1.5 if category == "1" else 0.6
 
-  cbr_rate = get_cbr_exchange_rate()
-rate = cbr_rate * 1.11
-item_price_rub = price_yuan * rate
-delivery_cost = weight * 789
-commission = item_price_rub * 0.10
-total_item_price = math.ceil(item_price_rub + commission)
-total_cost = math.ceil(item_price_rub + delivery_cost + commission)
+    cbr_rate = get_cbr_exchange_rate()
+    rate = cbr_rate * 1.11
+    item_price_rub = price_yuan * rate
+    delivery_cost = weight * 789
+    commission = item_price_rub * 0.10
+    total_item_price = math.ceil(item_price_rub + commission)
+    total_cost = math.ceil(item_price_rub + delivery_cost + commission)
 
 await message.answer(
     f"<b>Расчёт стоимости:</b>\n"
