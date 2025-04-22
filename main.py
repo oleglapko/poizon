@@ -1,6 +1,8 @@
 import math
 import asyncio
 import os
+import requests
+import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
@@ -24,6 +26,22 @@ dp = Dispatcher(storage=MemoryStorage())
 class Form(StatesGroup):
     waiting_for_category = State()
     waiting_for_price = State()
+
+# Получение курса юаня с сайта ЦБ РФ
+def get_cbr_exchange_rate():
+    try:
+        response = requests.get("https://www.cbr.ru/scripts/XML_daily.asp")
+        response.encoding = "windows-1251"
+        tree = ET.fromstring(response.text)
+
+        for valute in tree.findall("Valute"):
+            if valute.find("CharCode").text == "CNY":
+                value = valute.find("Value").text.replace(",", ".")
+                nominal = int(valute.find("Nominal").text)
+                return float(value) / nominal
+    except Exception as e:
+        print(f"Ошибка при получении курса ЦБ: {e}")
+        return 11.5  # fallback-курс
 
 # Хэндлер старт
 @dp.message(F.text == "/start")
@@ -65,62 +83,4 @@ async def price_handler(message: Message, state: FSMContext):
 
     data = await state.get_data()
     category = data["category"]
-    weight = 1.5 if category == "1" else 0.6
-
-    # Расчёты
-    cbr_rate = get_cbr_exchange_rate()
-    rate = cbr_rate * 1.11
-    item_price_rub = price_yuan * rate
-    delivery_cost = weight * 789
-    subtotal = item_price_rub + delivery_cost
-    commission = subtotal * 0.10
-    total_cost = math.ceil(subtotal + commission)
-
-    await message.answer(
-        f"<b>Расчёт стоимости:</b>\n"
-        f"Стоимость товара: {math.ceil(item_price_rub)} ₽\n"
-        f"Доставка из Китая ({weight} кг): {math.ceil(delivery_cost)} ₽\n"
-        f"Комиссия (10%): {math.ceil(commission)} ₽\n\n"
-        f"<b>Итого:</b> {total_cost} ₽"
-    )
-    await state.clear()
-
-def get_cbr_exchange_rate():
-    return 11.5  # Фиксированный курс ЦБ РФ, можно подключить API
-
-# Функция для удаления вебхука и запуска бота
-async def delete_webhook_and_run():
-    # Удаляем вебхук перед long polling
-    try:
-        await bot.delete_webhook()
-        print("Вебхук успешно удалён!")
-    except Exception as e:
-        print(f"Не удалось удалить вебхук: {e}")
-
-    # Запускаем long polling
-    await dp.start_polling(bot, skip_updates=True)
-
-# Функция для запуска бота через long polling
-def start_bot():
-    print("Удаляем вебхук (если установлен) и запускаем long polling!")
-    asyncio.run(delete_webhook_and_run())
-
-# Создание Flask-приложения
-app = Flask(__name__)
-
-# Фейковый маршрут для того, чтобы Flask не завершал выполнение
-@app.route('/')
-def home():
-    return "Bot is running!"
-
-# Функция для запуска Flask в отдельном потоке
-def run_flask():
-    app.run(host="0.0.0.0", port=5000)
-
-if __name__ == "__main__":
-    # Запускаем Flask в отдельном потоке
-    thread = Thread(target=run_flask)
-    thread.start()
-
-    # Запускаем бота в основном потоке
-    start_bot()
+    weight =
