@@ -90,7 +90,9 @@ def get_cbr_exchange_rate():
 
 # Функция для запуска бота
 def start_bot():
-    print("Бот запущен на long polling!")
+    print("Удаляем вебхук (если установлен) и запускаем long polling!")
+    # Удаляем вебхук перед long polling
+    bot.delete_webhook()
     asyncio.run(dp.start_polling(bot, skip_updates=True))
 
 # Создание Flask-приложения
