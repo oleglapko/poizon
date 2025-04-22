@@ -1,6 +1,7 @@
 import os
 import math
 import asyncio
+from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
 from aiogram.types import Message
@@ -8,21 +9,21 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
-from aiohttp import web
-from aiogram.webhook.aiohttp_server import setup_application
-from dotenv import load_dotenv
 
+# Загрузка .env
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
+# Настройка бота и диспетчера
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 
+# Состояния
 class Form(StatesGroup):
     waiting_for_category = State()
     waiting_for_price = State()
 
+# Хэндлер старт
 @dp.message(F.text == "/start")
 async def start_handler(message: Message, state: FSMContext):
     await message.answer(
@@ -34,6 +35,7 @@ async def start_handler(message: Message, state: FSMContext):
     )
     await state.set_state(Form.waiting_for_category)
 
+# Хэндлер категории
 @dp.message(Form.waiting_for_category)
 async def category_handler(message: Message, state: FSMContext):
     category = message.text.strip()
@@ -50,6 +52,7 @@ async def category_handler(message: Message, state: FSMContext):
     await message.answer("Введите цену товара в юанях ¥ (только число):")
     await state.set_state(Form.waiting_for_price)
 
+# Хэндлер цены
 @dp.message(Form.waiting_for_price)
 async def price_handler(message: Message, state: FSMContext):
     try:
@@ -62,6 +65,7 @@ async def price_handler(message: Message, state: FSMContext):
     category = data["category"]
     weight = 1.5 if category == "1" else 0.6
 
+    # Расчёты
     cbr_rate = get_cbr_exchange_rate()
     rate = cbr_rate * 1.11
     item_price_rub = price_yuan * rate
@@ -80,14 +84,13 @@ async def price_handler(message: Message, state: FSMContext):
     await state.clear()
 
 def get_cbr_exchange_rate():
-    return 11.5
+    return 11.5  # Фиксированный курс ЦБ РФ, можно подключить API
 
-async def on_startup(app):
-    await bot.set_webhook(https://poizon-1.onrender.com/webhook)
-
-app = web.Application()
-app.on_startup.append(on_startup)
-setup_application(app, dp, bot=bot, path="/webhook")
+# Основная функция запуска
+async def main():
+    print("Бот запущен на long polling!")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    web.run_app(app, host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+    asyncio.run(main())
+
