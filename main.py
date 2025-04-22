@@ -103,16 +103,19 @@ async def price_handler(message: Message, state: FSMContext):
     commission = subtotal * 0.10
     total_cost = math.ceil(subtotal + commission)
 
-    await message.answer(
-        f"<b>Расчёт стоимости:</b>\n"
-        f"Курс юаня: {rate:.2f} ₽\n"
-        f"Стоимость товара (с учётом комиссии 10%): {math.ceil(item_price_rub)} ₽\n"
-        f"Стоимость доставки из Китая ({weight} кг): {math.ceil(delivery_cost)} ₽\n"
-        f"<b>Итого:</b> {total_cost} ₽\n\n"
-        "Стоимость доставки по РФ (СДЭК, Почта, Boxberry) будет рассчитана нашим менеджером при заказе.\n"
-        "Для оформления заказа напишите @oleglobok."
-    )
-    await state.clear()
+    total_item_price = math.ceil(item_price_rub + commission)
+
+await message.answer(
+    f"<b>Расчёт стоимости:</b>\n"
+    f"Курс юаня: {rate:.2f} ₽\n"
+    f"Стоимость товара с комиссией(10%): {total_item_price} ₽\n"
+    f"Стоимость доставки из Китая ({weight} кг): {math.ceil(delivery_cost)} ₽\n\n"
+    f"<b>Итого:</b> {total_cost} ₽\n\n"
+    "Стоимость доставки по РФ (СДЭК, Почта, Boxberry) будет рассчитана нашим менеджером при заказе.\n"
+    "Для оформления заказа напишите @oleglobok."
+)
+await state.clear()
+
 
 # Удаляем вебхук и запускаем long polling
 async def delete_webhook_and_run():
