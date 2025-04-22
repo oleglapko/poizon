@@ -88,12 +88,22 @@ async def price_handler(message: Message, state: FSMContext):
 def get_cbr_exchange_rate():
     return 11.5  # Фиксированный курс ЦБ РФ, можно подключить API
 
-# Функция для запуска бота
+# Функция для удаления вебхука и запуска бота
+async def delete_webhook_and_run():
+    # Удаляем вебхук перед long polling
+    try:
+        await bot.delete_webhook()
+        print("Вебхук успешно удалён!")
+    except Exception as e:
+        print(f"Не удалось удалить вебхук: {e}")
+
+    # Запускаем long polling
+    await dp.start_polling(bot, skip_updates=True)
+
+# Функция для запуска бота через long polling
 def start_bot():
     print("Удаляем вебхук (если установлен) и запускаем long polling!")
-    # Удаляем вебхук перед long polling
-    bot.delete_webhook()
-    asyncio.run(dp.start_polling(bot, skip_updates=True))
+    asyncio.run(delete_webhook_and_run())
 
 # Создание Flask-приложения
 app = Flask(__name__)
@@ -114,4 +124,3 @@ if __name__ == "__main__":
 
     # Запускаем бота в основном потоке
     start_bot()
-
