@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
-from aiogram.types import Message
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -47,11 +47,21 @@ def get_cbr_exchange_rate():
 @dp.message(F.text == "/start")
 async def start_handler(message: Message, state: FSMContext):
     await message.answer(
+        "Здравствуйте! Я помогу вам рассчитать стоимость товара с доставкой.\n"
         "Выберите категорию товара:\n"
         "1. Обувь 👟\n"
         "2. Футболка/штаны/худи 👕\n"
         "3. Другое ❓\n\n"
-        "Введите номер категории (1, 2 или 3):"
+        "Выберите номер категории (1, 2 или 3):",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton("1. Обувь 👟")],
+                [KeyboardButton("2. Футболка/штаны/худи 👕")],
+                [KeyboardButton("3. Другое ❓")],
+            ],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
     )
     await state.set_state(Form.waiting_for_category)
 
@@ -60,7 +70,7 @@ async def start_handler(message: Message, state: FSMContext):
 async def category_handler(message: Message, state: FSMContext):
     category = message.text.strip()
     if category not in ["1", "2", "3"]:
-        await message.answer("Пожалуйста, введите 1, 2 или 3.")
+        await message.answer("Пожалуйста, выберите 1, 2 или 3.")
         return
 
     if category == "3":
@@ -69,7 +79,7 @@ async def category_handler(message: Message, state: FSMContext):
         return
 
     await state.update_data(category=category)
-    await message.answer("Введите цену товара в юанях ¥ (только число):")
+    await message.answer("Введите цену товара в юанях ¥:")
     await state.set_state(Form.waiting_for_price)
 
 # Хэндлер цены
@@ -95,11 +105,13 @@ async def price_handler(message: Message, state: FSMContext):
 
     await message.answer(
         f"<b>Расчёт стоимости:</b>\n"
-        f"Курс ЦБ + 11%: {rate:.2f} ₽\n"
-        f"Стоимость товара: {math.ceil(item_price_rub)} ₽\n"
-        f"Доставка ({weight} кг): {math.ceil(delivery_cost)} ₽\n"
+        f"Курс юаня: {rate:.2f} ₽\n"
+        f"Стоимость товара (с учётом комиссии 10%): {math.ceil(item_price_rub)} ₽\n"
+        f"Стоимость доставки из Китая ({weight} кг): {math.ceil(delivery_cost)} ₽\n"
         f"Комиссия (10%): {math.ceil(commission)} ₽\n\n"
-        f"<b>Итого:</b> {total_cost} ₽"
+        f"<b>Итого:</b> {total_cost} ₽\n\n"
+        "Стоимость доставки по РФ (СДЭК, Почта, Boxberry) будет рассчитана нашим менеджером при заказе.\n"
+        "Для оформления заказа напишите @oleglobok."
     )
     await state.clear()
 
