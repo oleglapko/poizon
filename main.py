@@ -1,104 +1,97 @@
-
-import logging
-import asyncio
+import math
+import json
 import os
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
+from aiohttp import ClientSession
+from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
-import aiohttp
+from aiogram.fsm.context import FSMContext
+from aiogram.enums import ParseMode
+from aiogram.types import CallbackQuery
+from aiogram.utils.markdown import hbold
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram import types
+from fastapi import FastAPI, Request
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiogram.client.bot import DefaultBotProperties
+from aiogram.webhook.base import BaseWebhookServer
+from aiogram.fsm.storage.memory import MemoryStorage
 
-# Токен
+from dotenv import load_dotenv
+load_dotenv()
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN не найден в переменных окружения")
+DOMAIN = os.getenv("DOMAIN")  # например: https://poizon-5ih7.onrender.com
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_URL = f"{DOMAIN}{WEBHOOK_PATH}"
 
-# Настройки
-YUAN_CB_RATE_URL = "https://www.cbr-xml-daily.ru/daily_json.js"
-DELIVERY_RATE = 789
-COMMISSION = 0.1
-YUAN_MARKUP = 1.11
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher(storage=MemoryStorage())
 
-# FSM
-class Order(StatesGroup):
-    choosing_category = State()
-    entering_price = State()
+# Функция получения курса
+async def get_cny_rate():
+    async with ClientSession() as session:
+        async with session.get("https://www.cbr-xml-daily.ru/daily_json.js") as resp:
+            data = json.loads(await resp.text())  # фикс тут
+            rate = data["Valute"]["CNY"]["Value"]
+            return math.ceil(rate * 1.11)
 
-# Инициализация
-logging.basicConfig(level=logging.INFO)
-storage = MemoryStorage()
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(storage=storage)
-
-# Клавиатура
-category_keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="Обувь")],
-        [KeyboardButton(text="Футболка/Кофта/Штаны")],
-        [KeyboardButton(text="Другое")],
-    ],
-    resize_keyboard=True
-)
-
+# Старт
 @dp.message(F.text == "/start")
-async def start(message: Message, state: FSMContext):
+async def cmd_start(message: Message, state: FSMContext):
     await message.answer(
-        "Привет! Я бот для расчёта стоимости доставки товаров с Poizon.\n"
-        "Выбери категорию товара:",
-        reply_markup=category_keyboard
+        "Привет! Выбери категорию товара:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Обувь", callback_data="category_shoes")],
+            [InlineKeyboardButton(text="Одежда", callback_data="category_clothes")],
+            [InlineKeyboardButton(text="Другое", callback_data="category_other")],
+        ])
     )
-    await state.set_state(Order.choosing_category)
 
-@dp.message(F.text.in_(["Обувь", "Футболка/Кофта/Штаны", "Другое"]))
-async def choose_category(message: Message, state: FSMContext):
-    category = message.text
-    if category == "Другое":
-        await message.answer("По товарам другой категории напиши менеджеру: @oleglobok")
-        await state.clear()
+# Выбор категории
+@dp.callback_query(F.data.startswith("category_"))
+async def choose_category(callback: CallbackQuery, state: FSMContext):
+    category = callback.data.split("_")[1]
+    if category == "other":
+        await callback.message.answer("Напиши @oleglobok для индивидуального расчёта.")
         return
 
-    await state.update_data(category=category)
-    await message.answer("Введи стоимость товара в юанях (без доставки)")
-    await state.set_state(Order.entering_price)
+    weight = {"shoes": 1.5, "clothes": 0.7}[category]
+    await state.update_data(weight=weight)
+    await callback.message.answer("Введи стоимость товара в юанях (¥):")
 
-@dp.message(Order.entering_price, F.text.regexp(r"^\d+(\.\d+)?$"))
+# Получение стоимости
+@dp.message(F.text.regexp(r"^\d+(\.\d+)?$"))
 async def calculate_total(message: Message, state: FSMContext):
-    data = await state.get_data()
+    user_data = await state.get_data()
+    if "weight" not in user_data:
+        await message.answer("Сначала выбери категорию товара.")
+        return
+
     price_yuan = float(message.text)
+    cny_rate = await get_cny_rate()
+    weight = user_data["weight"]
 
-    # Курс юаня
-    async with aiohttp.ClientSession() as session:
-        async with session.get(YUAN_CB_RATE_URL) as resp:
-            cb_data = await resp.json()
-            cb_yuan = cb_data['Valute']['CNY']['Value']
-            rate = cb_yuan * YUAN_MARKUP
-
-    category = data['category']
-    weight = 1.5 if category == "Обувь" else 0.6
-
-    rub_price = price_yuan * rate
-    commission = rub_price * COMMISSION
-    delivery = weight * DELIVERY_RATE
-    total = rub_price + commission + delivery
+    price_rub = price_yuan * cny_rate
+    price_with_fee = math.ceil(price_rub * 1.1)  # +10% комиссия
+    shipping_cost = math.ceil(weight * 789)
+    total = price_with_fee + shipping_cost
 
     await message.answer(
-        f"Стоимость товара: {rub_price:.0f} ₽\n"
-        f"Комиссия (10%): {commission:.0f} ₽\n"
-        f"Доставка из Китая в Москву: {delivery:.0f} ₽\n"
-        f"\nПримерная стоимость: {total:.0f} ₽\n"
-        f"\n⚠️ К этой сумме будет добавлена доставка СДЭК по России. "
-        f"Точная сумма будет известна после оформления заказа."
+        f"{hbold('Курс юаня:')} {cny_rate}₽\n"
+        f"{hbold('Товар:')} {price_with_fee}₽ (с комиссией)\n"
+        f"{hbold('Доставка из Китая:')} {shipping_cost}₽\n"
+        f"{hbold('Итого:')} {total}₽"
     )
     await state.clear()
 
-@dp.message()
-async def fallback(message: Message):
-    await message.answer("Пожалуйста, выбери категорию с кнопок или введи корректное число.")
+# FastAPI-приложение для Render
+app = FastAPI()
+@app.on_event("startup")
+async def on_startup():
+    await bot.set_webhook(WEBHOOK_URL)
 
-async def main():
-    await dp.start_polling(bot)
+@app.on_event("shutdown")
+async def on_shutdown():
+    await bot.delete_webhook()
 
-if __name__ == "__main__":
-    asyncio.run(main())
+SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
