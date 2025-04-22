@@ -55,9 +55,9 @@ async def start_handler(message: Message, state: FSMContext):
         "Выберите номер категории (1, 2 или 3):",
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[
-                [KeyboardButton("1. Обувь 👟")],
-                [KeyboardButton("2. Футболка/штаны/худи 👕")],
-                [KeyboardButton("3. Другое ❓")],
+                [KeyboardButton(text="1. Обувь 👟")],
+                [KeyboardButton(text="2. Футболка/штаны/худи 👕")],
+                [KeyboardButton(text="3. Другое ❓")],
             ],
             resize_keyboard=True,
             one_time_keyboard=True
