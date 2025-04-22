@@ -83,4 +83,49 @@ async def price_handler(message: Message, state: FSMContext):
 
     data = await state.get_data()
     category = data["category"]
-    weight =
+    weight = 1.5 if category == "1" else 0.6
+
+    cbr_rate = get_cbr_exchange_rate()
+    rate = cbr_rate * 1.11
+    item_price_rub = price_yuan * rate
+    delivery_cost = weight * 789
+    subtotal = item_price_rub + delivery_cost
+    commission = subtotal * 0.10
+    total_cost = math.ceil(subtotal + commission)
+
+    await message.answer(
+        f"<b>Расчёт стоимости:</b>\n"
+        f"Курс ЦБ + 11%: {rate:.2f} ₽\n"
+        f"Стоимость товара: {math.ceil(item_price_rub)} ₽\n"
+        f"Доставка ({weight} кг): {math.ceil(delivery_cost)} ₽\n"
+        f"Комиссия (10%): {math.ceil(commission)} ₽\n\n"
+        f"<b>Итого:</b> {total_cost} ₽"
+    )
+    await state.clear()
+
+# Удаляем вебхук и запускаем long polling
+async def delete_webhook_and_run():
+    try:
+        await bot.delete_webhook()
+        print("Вебхук успешно удалён!")
+    except Exception as e:
+        print(f"Не удалось удалить вебхук: {e}")
+    await dp.start_polling(bot, skip_updates=True)
+
+def start_bot():
+    print("Запуск бота через long polling...")
+    asyncio.run(delete_webhook_and_run())
+
+# Flask (фейковый, для Replit / Render)
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot is running!"
+
+def run_flask():
+    app.run(host="0.0.0.0", port=5000)
+
+if __name__ == "__main__":
+    Thread(target=run_flask).start()
+    start_bot()
