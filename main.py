@@ -91,7 +91,7 @@ async def price_handler(message: Message, state: FSMContext):
         await message.answer("Введите число, например: 289")
         return
 
-       data = await state.get_data()
+    data = await state.get_data()
     category = data["category"]
     weight = 1.5 if category == "1" else 0.6
 
@@ -103,18 +103,16 @@ async def price_handler(message: Message, state: FSMContext):
     total_item_price = math.ceil(item_price_rub + commission)
     total_cost = math.ceil(item_price_rub + delivery_cost + commission)
 
-await message.answer(
-    f"<b>Расчёт стоимости:</b>\n"
-    f"Курс юаня: {rate:.2f} ₽\n"
-    f"Стоимость товара с учетом комиссии (10%): {total_item_price} ₽\n"
-    f"Стоимость доставки из Китая: {math.ceil(delivery_cost)} ₽\n\n"
-    f"<b>Итого:</b> {total_cost} ₽\n\n"
-    "Стоимость доставки по РФ (СДЭК, Почта, Boxberry) будет рассчитана нашим менеджером при заказе.\n"
-    "Для оформления заказа напишите @oleglobok."
-)
-await state.clear()
-
-
+    await message.answer(
+        f"<b>Расчёт стоимости:</b>\n"
+        f"Курс юаня: {rate:.2f} ₽\n"
+        f"Стоимость товара с учетом комиссии (10%): {total_item_price} ₽\n"
+        f"Стоимость доставки из Китая: {math.ceil(delivery_cost)} ₽\n\n"
+        f"<b>Итого:</b> {total_cost} ₽\n\n"
+        "Стоимость доставки по РФ (СДЭК, Почта, Boxberry) будет рассчитана нашим менеджером при заказе.\n"
+        "Для оформления заказа напишите @oleglobok."
+    )
+    await state.clear()
 
 # Удаляем вебхук и запускаем long polling
 async def delete_webhook_and_run():
