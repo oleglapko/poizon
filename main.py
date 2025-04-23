@@ -74,7 +74,7 @@ async def category_handler(message: Message, state: FSMContext):
         return
 
     if category == "3":
-        await message.answer("Свяжитесь с менеджером: @oleglobok")
+        await message.answer("Свяжитесь с менеджером: @the_poiz_adm")
         await state.clear()
         return
 
@@ -110,7 +110,7 @@ async def price_handler(message: Message, state: FSMContext):
         f"Стоимость доставки из Китая: {math.ceil(delivery_cost)} ₽\n\n"
         f"<b>Итого:</b> {total_cost} ₽\n\n"
         "Стоимость доставки по РФ (СДЭК, Почта, Boxberry) будет рассчитана нашим менеджером при заказе.\n"
-        "Для оформления заказа напишите @oleglobok."
+        "Для оформления заказа напишите @the_poiz_adm."
     )
     await state.clear()
 
