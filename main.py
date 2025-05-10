@@ -96,7 +96,7 @@ async def price_handler(message: Message, state: FSMContext):
     weight = 1.5 if category == "1" else 0.6
 
     cbr_rate = get_cbr_exchange_rate()
-    rate = cbr_rate * 1.11
+    rate = cbr_rate * 1.12
     item_price_rub = price_yuan * rate
     delivery_cost = weight * 789
     commission = item_price_rub * 0.10
