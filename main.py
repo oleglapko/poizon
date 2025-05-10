@@ -27,6 +27,12 @@ class Form(StatesGroup):
     waiting_for_category = State()
     waiting_for_price = State()
 
+# Клавиатура для нового расчета
+new_calc_keyboard = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="🔁 Новый расчёт")]],
+    resize_keyboard=True
+)
+
 # Получение курса юаня с сайта ЦБ РФ
 def get_cbr_exchange_rate():
     try:
@@ -65,6 +71,11 @@ async def start_handler(message: Message, state: FSMContext):
     )
     await state.set_state(Form.waiting_for_category)
 
+# Хэндлер кнопки "новый расчёт"
+@dp.message(F.text == "🔁 Новый расчёт")
+async def restart_handler(message: Message, state: FSMContext):
+    await start_handler(message, state)
+
 # Хэндлер категории
 @dp.message(Form.waiting_for_category)
 async def category_handler(message: Message, state: FSMContext):
@@ -74,12 +85,12 @@ async def category_handler(message: Message, state: FSMContext):
         return
 
     if category == "3":
-        await message.answer("Свяжитесь с менеджером: @the_poiz_adm")
+        await message.answer("Свяжитесь с менеджером: @the_poiz_adm", reply_markup=new_calc_keyboard)
         await state.clear()
         return
 
     await state.update_data(category=category)
-    await message.answer("Введите цену товара в юанях ¥:")
+    await message.answer("Введите цену товара в юанях ¥:", reply_markup=None)
     await state.set_state(Form.waiting_for_price)
 
 # Хэндлер цены
@@ -110,7 +121,8 @@ async def price_handler(message: Message, state: FSMContext):
         f"Стоимость доставки из Китая: {math.ceil(delivery_cost)} ₽\n\n"
         f"<b>Итого:</b> {total_cost} ₽\n\n"
         "Стоимость доставки по РФ (СДЭК, Почта, Boxberry) будет рассчитана нашим менеджером при заказе.\n"
-        "Для оформления заказа напишите @the_poiz_adm."
+        "Для оформления заказа напишите @the_poiz_adm.",
+        reply_markup=new_calc_keyboard
     )
     await state.clear()
 
