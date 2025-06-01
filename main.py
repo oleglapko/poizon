@@ -42,7 +42,7 @@ new_calc_keyboard = ReplyKeyboardMarkup(
 
 start_keyboard = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="🛒 Новый расчёт")],
+        [KeyboardButton(text="Расчёт стоимости")],
         [KeyboardButton(text="📦 Отследить заказ")]
     ],
     resize_keyboard=True,
@@ -108,7 +108,7 @@ async def start_handler(message: Message, state: FSMContext):
     await state.clear()
 
 @dp.message(F.text == "🔁 Новый расчёт")
-@dp.message(F.text == "🛒 Новый расчёт")
+@dp.message(F.text == "Расчёт стоимости")
 async def restart_handler(message: Message, state: FSMContext):
     await message.answer(
         "Выберите категорию товара:\n"
@@ -171,7 +171,7 @@ async def price_handler(message: Message, state: FSMContext):
     delivery_rate = 800  # только авто-тариф
 
     cbr_rate = get_cbr_exchange_rate()
-    rate = cbr_rate * 1.09
+    rate = cbr_rate * 1.105
     item_price_rub = price_yuan * rate
     delivery_cost = weight * delivery_rate
     commission = item_price_rub * 0.10
