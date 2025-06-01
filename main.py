@@ -42,7 +42,7 @@ new_calc_keyboard = ReplyKeyboardMarkup(
 
 start_keyboard = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="Расчёт стоимости")],
+        [KeyboardButton(text="🛒 Расчёт стоимости")],
         [KeyboardButton(text="📦 Отследить заказ")]
     ],
     resize_keyboard=True,
@@ -108,7 +108,7 @@ async def start_handler(message: Message, state: FSMContext):
     await state.clear()
 
 @dp.message(F.text == "🔁 Новый расчёт")
-@dp.message(F.text == "Расчёт стоимости")
+@dp.message(F.text == "🛒 Расчёт стоимости")
 async def restart_handler(message: Message, state: FSMContext):
     await message.answer(
         "Выберите категорию товара:\n"
