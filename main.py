@@ -130,7 +130,7 @@ async def restart_handler(message: Message, state: FSMContext):
 
 @dp.message(F.text == "📦 Отследить заказ")
 async def track_order_start(message: Message, state: FSMContext):
-    await message.answer("Введите код вашего заказа (например: vasya_1):")
+    await message.answer("Введите код вашего заказа:")
     await state.set_state(Form.waiting_for_tracking_code)
 
 @dp.message(Form.waiting_for_tracking_code)
